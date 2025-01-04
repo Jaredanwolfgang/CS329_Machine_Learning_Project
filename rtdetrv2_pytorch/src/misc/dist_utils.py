@@ -25,7 +25,7 @@ from torch.utils.data import DistributedSampler
 from ..data import DataLoader 
 
 
-def setup_distributed(print_rank: int=0, print_method: str='builtin', seed: int=None, ):
+def setup_distributed(print_rank: int=0, print_method: str='builtin', seed: int=None, backend='nccl'):
     """
     env setup
     args:
@@ -40,7 +40,7 @@ def setup_distributed(print_rank: int=0, print_method: str='builtin', seed: int=
         WORLD_SIZE = int(os.getenv('WORLD_SIZE', 1))
         
         # torch.distributed.init_process_group(backend=backend, init_method='env://')
-        torch.distributed.init_process_group(init_method='env://')
+        torch.distributed.init_process_group(backend=backend, init_method='env://')
         torch.distributed.barrier()
 
         rank = torch.distributed.get_rank()
@@ -150,7 +150,7 @@ def de_model(model):
     return de_parallel(de_complie(model))
 
 
-def warp_loader(loader, shuffle=False):        
+def warp_loader(loader, shuffle=False, force_num_workers=None):        
     if is_dist_available_and_initialized():
         sampler = DistributedSampler(loader.dataset, shuffle=shuffle)
         loader = DataLoader(loader.dataset, 
@@ -159,9 +159,20 @@ def warp_loader(loader, shuffle=False):
                             drop_last=loader.drop_last, 
                             collate_fn=loader.collate_fn, 
                             pin_memory=loader.pin_memory,
-                            num_workers=loader.num_workers, )
+                            num_workers=force_num_workers if force_num_workers is not None else loader.num_workers, )
     return loader
 
+def wrap_loader(loader, dataset, shuffle=False):        
+    if is_dist_available_and_initialized():
+        sampler = DistributedSampler(dataset, shuffle=shuffle)
+        loader = DataLoader(dataset, 
+                            loader.batch_size, 
+                            sampler=sampler, 
+                            drop_last=loader.drop_last, 
+                            collate_fn=loader.collate_fn, 
+                            pin_memory=loader.pin_memory,
+                            num_workers=loader.num_workers, )
+    return loader
 
 
 def is_parallel(model) -> bool:

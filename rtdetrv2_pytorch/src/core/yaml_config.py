@@ -79,6 +79,27 @@ class YAMLConfig(BaseConfig):
         if self._val_dataloader is None and 'val_dataloader' in self.yaml_cfg:
             self._val_dataloader = self.build_dataloader('val_dataloader')
         return super().val_dataloader
+
+    # AL modified
+    @property
+    def labeled_dataloader(self, ) -> DataLoader:
+        if self._labeled_dataloader is None and 'labeled_dataloader' in self.yaml_cfg:
+            self._labeled_dataloader = self.build_dataloader('labeled_dataloader')
+        return super().labeled_dataloader
+    
+    @labeled_dataloader.setter
+    def labeled_dataloader(self, loader):
+        self._labeled_dataloader = loader
+    
+    @property
+    def unlabeled_dataloader(self, ) -> DataLoader:
+        if self._unlabeled_dataloader is None and 'unlabeled_dataloader' in self.yaml_cfg:
+            self._unlabeled_dataloader = self.build_dataloader('unlabeled_dataloader')
+        return super().unlabeled_dataloader
+    
+    @unlabeled_dataloader.setter
+    def unlabeled_dataloader(self, loader):
+        self._unlabeled_dataloader = loader
     
     @property
     def ema(self, ) -> torch.nn.Module:

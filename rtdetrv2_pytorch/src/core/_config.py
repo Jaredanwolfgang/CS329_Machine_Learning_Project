@@ -33,6 +33,8 @@ class BaseConfig(object):
         self._lr_warmup_scheduler: LRScheduler = None 
         self._train_dataloader :DataLoader = None 
         self._val_dataloader :DataLoader = None 
+        self._labeled_dataloader :DataLoader = None  # AL modified
+        self._unlabeled_dataloader :DataLoader = None  # AL modified
         self._ema :nn.Module = None 
         self._scaler :GradScaler = None 
         self._train_dataset :Dataset = None 
@@ -158,6 +160,43 @@ class BaseConfig(object):
     @val_dataloader.setter
     def val_dataloader(self, loader):
         self._val_dataloader = loader 
+
+    # AL modified
+    @property
+    def labeled_dataloader(self) -> DataLoader:
+        if self._labeled_dataloader is None and self.labeled_dataset is not None:
+            loader = DataLoader(self.labeled_dataset, 
+                                batch_size=self.train_batch_size, 
+                                num_workers=self.num_workers, 
+                                drop_last=False,
+                                collate_fn=self.collate_fn, 
+                                shuffle=self.train_shuffle)
+            loader.shuffle = self.train_shuffle
+            self._labeled_dataloader = loader
+
+        return self._labeled_dataloader
+    
+    @labeled_dataloader.setter
+    def labeled_dataloader(self, loader):
+        self._labeled_dataloader = loader
+    
+    @property
+    def unlabeled_dataloader(self) -> DataLoader:
+        if self._unlabeled_dataloader is None and self.unlabeled_dataset is not None:
+            loader = DataLoader(self.unlabeled_dataset, 
+                                batch_size=self.train_batch_size, 
+                                num_workers=self.num_workers, 
+                                drop_last=False,
+                                collate_fn=self.collate_fn, 
+                                shuffle=self.train_shuffle)
+            loader.shuffle = self.train_shuffle
+            self._unlabeled_dataloader = loader
+
+        return self._unlabeled_dataloader
+    
+    @unlabeled_dataloader.setter
+    def unlabeled_dataloader(self, loader):
+        self._unlabeled_dataloader = loader 
 
     @property
     def ema(self, ) -> nn.Module:

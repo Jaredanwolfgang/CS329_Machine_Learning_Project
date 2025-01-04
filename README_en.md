@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 English | [简体中文](README_cn.md)
 
 
@@ -133,7 +132,3 @@ If you use `RT-DETR` or `RTDETRv2` in your work, please use the following BibTeX
       url={https://arxiv.org/abs/2407.17140}, 
 }
 ```
-=======
-# CS329_Machine_Learning_Project
-When Active Learning and Data Augmentation meet at Object Detection
->>>>>>> 791f1131aa6ad3ae19ede68169521c6cbee87db8

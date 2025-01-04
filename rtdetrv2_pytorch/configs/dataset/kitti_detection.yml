@@ -1,0 +1,82 @@
+task: detection
+
+evaluator:
+  type: CocoEvaluator
+  iou_types: ['bbox', ]
+
+# num_classes: 365
+# remap_mscoco_category: False
+
+# num_classes: 91
+# remap_mscoco_category: False
+
+num_classes: 80
+remap_mscoco_category: True
+
+
+train_dataloader: 
+  type: DataLoader
+  dataset: 
+    type: CocoDetection
+    img_folder: ./dataset/kitti_coco/train2017/
+    ann_file: ./dataset/kitti_coco/annotations/instances_train2017.json
+    return_masks: False
+    transforms:
+      type: Compose
+      ops: ~
+  shuffle: True
+  num_workers: 8  # 4
+  drop_last: True 
+  collate_fn:
+    type: BatchImageCollateFuncion
+
+
+val_dataloader:  # use original validation split
+  type: DataLoader
+  dataset: 
+    type: CocoDetection
+    img_folder: ./dataset/kitti_coco/val2017/
+    ann_file: ./dataset/kitti_coco/annotations/instances_val2017.json
+    return_masks: False
+    transforms:
+      type: Compose
+      ops: ~ 
+  shuffle: False
+  num_workers: 8  # 4
+  drop_last: False
+  collate_fn:
+    type: BatchImageCollateFuncion
+
+
+labeled_dataloader: 
+  type: DataLoader
+  dataset: 
+    type: CocoDetection
+    img_folder: ./dataset/kitti_coco_augmented/train2017/
+    ann_file: ./dataset/kitti_coco_augmented/annotations/instances_labeled2017.json
+    return_masks: False
+    transforms:
+      type: Compose
+      ops: ~
+  shuffle: True
+  num_workers: 8  # 4
+  drop_last: True 
+  collate_fn:
+    type: BatchImageCollateFuncion
+
+
+unlabeled_dataloader: 
+  type: DataLoader
+  dataset: 
+    type: CocoDetection
+    img_folder: ./dataset/kitti_coco_augmented/train2017/
+    ann_file: ./dataset/kitti_coco_augmented/annotations/instances_unlabeled2017.json
+    return_masks: False
+    transforms:
+      type: Compose
+      ops: ~
+  shuffle: False
+  num_workers: 8  # 4
+  drop_last: False 
+  collate_fn:
+    type: BatchImageCollateFuncion

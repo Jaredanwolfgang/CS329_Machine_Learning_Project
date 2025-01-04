@@ -27,14 +27,12 @@ Initially 1500 data in the training set
 add 1500 data in epoch #10, 20, 30, 40 
 """
 
-AL_MODE = 'gain'
-AL_SIZE_MARGIN = 1500  # 1500
-# AL_EPOCH_MARGIN = 5
-# AL_MAX_EPOCH = 45
-AL_EPOCHS = [0, 5, 10, 15, 20, 25, 30, 35, 40, 45]
+AL_MODE = 'random'
+AL_SIZE_MARGIN = 1500
+AL_EPOCH_MARGIN = 5
 AL_DATASET_BASE = os.path.join('.', 'dataset')
-# LABELED_DATASET_PATH = os.path.join(AL_DATASET_BASE, 'kitti_labeled')
-# UNLABELED_DATASET_PATH = os.path.join(AL_DATASET_BASE, 'kitti_unlabeled')
+LABELED_DATASET_PATH = os.path.join(AL_DATASET_BASE, 'kitti_labeled')
+UNLABELED_DATASET_PATH = os.path.join(AL_DATASET_BASE, 'kitti_unlabeled')
 KITTI_DATASET_PATH = os.path.join(AL_DATASET_BASE, 'kitti_coco')
 
 
@@ -56,10 +54,9 @@ class DetSolver(BaseSolver):
         
         if dist.get_rank() == 0:
             kitti_dict = clean_file_structure()
-            # id2fn = {img['id']: img['file_name'] for img in kitti_dict['images']}
             all_train_img_ids = [_['id'] for _ in kitti_dict['images']]
-            all_unlabeled_img_ids = set(all_train_img_ids)
-            all_labeled_img_ids = set([])
+            all_unlabeled_img_ids = [_ for _ in all_train_img_ids]
+            all_labeled_img_ids = []
         dist.barrier()
 
         for epoch in range(start_epcoch, args.epoches):
@@ -67,14 +64,12 @@ class DetSolver(BaseSolver):
             for i in range(dist.get_world_size()):
                 locals()[f'pairs_gpu{i}'] = []
             dist.barrier()
-            if epoch in AL_EPOCHS and AL_MODE in ['entropy', 'gain']:
-                print(f"[AL] Pausing at epoch {epoch}. Precomputation for {AL_MODE} strtegy ...")
+            if epoch % AL_EPOCH_MARGIN == 0 and AL_MODE == 'entropy':
+                print(f"[AL] Pausing at epoch {epoch}. Precomputation for entropy strtegy ...")
                 #-----------------------Unlabeled data loader-----------------------#
-                print(f"[AL] Preparing unlabeled dataloader ...")
-                self.cfg.unlabeled_dataloader = self.cfg.build_dataloader('unlabeled_dataloader')
+                self.cfg.labeled_dataloader = self.cfg.build_dataloader('unlabeled_dataloader')
                 self.unlabeled_dataloader = dist_utils.warp_loader(self.cfg.unlabeled_dataloader, \
                     shuffle=self.cfg.unlabeled_dataloader.shuffle)
-                print(f"[AL] done with {len(self.unlabeled_dataloader)} in the new dataloader!")
                 self.unlabeled_dataloader.set_epoch(epoch)
                 if dist_utils.is_dist_available_and_initialized():
                     self.unlabeled_dataloader.sampler.set_epoch(epoch)
@@ -82,15 +77,24 @@ class DetSolver(BaseSolver):
                 self.model.eval()
                 self.criterion.eval()
                 dist.barrier()
+                # with torch.no_grad():
+                #     locals()[f'pairs_gpu{dist.get_rank()}'] = self.entropy_feed()
+                #     print(len(locals()[f'pairs_gpu{dist.get_rank()}']))
+                # dist.barrier()
+                # pairs = []
+                # all_pairs_gpu = torch.tensor(locals()[f'pairs_gpu{dist.get_rank()}']).to('cuda:0')
+                # dist.all_gather([pairs, all_pairs_gpu])
+                # dist.barrier()
+                # print(-len(pairs))
+                # if dist.get_rank() == 0:
+                #     for i in range(dist.get_world_size()):
+                #         pairs += locals()[f'pairs_gpu{i}']
+                #         print(len(locals()[f'pairs_gpu{i}']))
+                #     pairs = sorted(pairs, key=lambda x: x[0], reverse=True)
+                #     print(f"[AL] Precomputation done, collected {len(pairs)} pairs using entropy.")
+                #     assert False
                 with torch.no_grad():
-                    # if epoch == 0:
-                    #     local_pairs = self.init_feed(id2fn)
-                    if AL_MODE == 'entropy':
-                        local_pairs = self.entropy_feed()
-                    elif AL_MODE == 'gain':
-                        local_pairs = self.gain_feed()
-                    else:
-                        raise NotImplementedError
+                    local_pairs = self.entropy_feed()
                     rank = dist.get_rank()
                     local_pairs_tensor = torch.tensor(local_pairs).to(torch.device("cuda", rank))
                     all_pairs = [torch.zeros_like(local_pairs_tensor) for _ in range(dist.get_world_size())]
@@ -100,70 +104,86 @@ class DetSolver(BaseSolver):
                         for i in range(dist.get_world_size()):
                             pairs.extend(all_pairs[i].cpu().numpy())
                         pairs = sorted(pairs, key=lambda x: x[0], reverse=True)
-                        print(f"[AL] Precomputation done, collected {len(pairs)} pairs using {AL_MODE}.")
+                        print(f"[AL] Precomputation done, collected {len(pairs)} pairs using entropy.")
                     dist.barrier()
                 
-            if epoch in AL_EPOCHS and dist.get_rank() == 0:
+            if epoch % AL_EPOCH_MARGIN == 0 and dist.get_rank() == 0:
                 print(f"[AL] Pausing at epoch {epoch}. Selecting data to label ...")
+                # all_train_data = os.listdir(os.path.join(KITTI_DATASET_PATH, 'train2017'))
+                # all_train_data = [_.split('.')[0] for _ in all_train_data]
+                # all_labeled_data = os.listdir(os.path.join(LABELED_DATASET_PATH, 'train2017'))
+                # all_labeled_data = [_.split('.')[0] for _ in all_labeled_data]
+                # all_unlabeled_data = [_ for _ in all_train_data if _ not in all_labeled_data]
                 
                 if AL_MODE == 'random':
-                    new_labeled_img_ids = AL_random(list(all_unlabeled_img_ids))
-                elif AL_MODE in ['entropy', 'gain']:
+                    new_labeled_img_ids = AL_random(all_unlabeled_img_ids)
+                elif AL_MODE == 'entropy':
                     new_labeled_img_ids = [_[1] for _ in pairs]
-                    al_size = AL_SIZE_MARGIN  # if epoch > 0 else 10000
-                    new_labeled_img_ids = getTopUnique(new_labeled_img_ids, al_size, list(all_labeled_img_ids))
+                    new_labeled_img_ids = getTopUnique(new_labeled_img_ids, AL_SIZE_MARGIN, all_labeled_img_ids)
                 else:
                     raise NotImplementedError
                     
                 print(f"[AL] Selected {len(new_labeled_img_ids)} data from unlabeled dataset.")
                 print("[AL] Labeling data ...")
-                
+                # for datum in tqdm(new_labeled_img_ids):
+                #     img_file_src = os.path.join(UNLABELED_DATASET_PATH, 'train2017', f"{datum}.png")
+                #     img_file_dst = os.path.join(LABELED_DATASET_PATH, 'train2017')
+                #     shutil.move(img_file_src, img_file_dst)
                 if len(new_labeled_img_ids) > 0:
-                    new_labeled_img_ids_set = set(new_labeled_img_ids)
-                    all_labeled_img_ids = all_labeled_img_ids | new_labeled_img_ids_set
-                    all_unlabeled_img_ids = all_unlabeled_img_ids - new_labeled_img_ids_set
-
-                    image_dict = {int(img['id']): img for img in kitti_dict['images']}
-                    annotation_dict = {}
-                    for ann in kitti_dict['annotations']:
-                        annotation_dict.setdefault(int(ann['image_id']), []).append(ann)
-
-                    labeled_images = [image_dict[_id] for _id in list(all_labeled_img_ids)]
-                    labeled_annotations = [ann for _id in list(all_labeled_img_ids) if _id in annotation_dict.keys() for ann in annotation_dict[_id]]
-                    unlabeled_images = [image_dict[_id] for _id in list(all_unlabeled_img_ids)]
-                    unlabeled_annotations = [ann for _id in list(all_unlabeled_img_ids) if _id in annotation_dict.keys() for ann in annotation_dict[_id]]
-                    
-                    labeled_ann_data = {
-                        'images': labeled_images,
-                        'annotations': labeled_annotations,
-                        'categories': kitti_dict['categories']
-                    }
-                    unlabeled_ann_data = {
-                        'images': unlabeled_images,
-                        'annotations': unlabeled_annotations,
-                        'categories': kitti_dict['categories']
-                    }
-                    print(f"[AL Debug] {len(labeled_images)} {len(unlabeled_images)} {len(labeled_annotations)} {len(unlabeled_annotations)}")
-                    
+                    all_labeled_img_ids += new_labeled_img_ids
+                    all_unlabeled_img_ids = [_ for _ in all_unlabeled_img_ids if _ not in new_labeled_img_ids]
                     with open(os.path.join(KITTI_DATASET_PATH, 'annotations', 'instances_labeled2017.json'), 'w') as f:
+                        labeled_ann_data = {
+                            'images': [_ for _ in kitti_dict['images'] if _['id'] in all_labeled_img_ids],
+                            'annotations': [_ for _ in kitti_dict['annotations'] if _['image_id'] in all_labeled_img_ids],
+                            'categories': kitti_dict['categories']
+                        }
+                        print(f"[AL DEBUG] {len(all_labeled_img_ids)}, {len(all_unlabeled_img_ids)}, {len(labeled_ann_data['images'])}")
                         json.dump(labeled_ann_data, f)
                     with open(os.path.join(KITTI_DATASET_PATH, 'annotations', 'instances_unlabeled2017.json'), 'w') as f:
+                        unlabeled_ann_data = {
+                            'images': [_ for _ in kitti_dict['images'] if _['id'] in all_unlabeled_img_ids],
+                            'annotations': [_ for _ in kitti_dict['annotations'] if _['image_id'] in all_unlabeled_img_ids],
+                            'categories': kitti_dict['categories']
+                        }
                         json.dump(unlabeled_ann_data, f)
-                        
-                    with open(os.path.join(KITTI_DATASET_PATH, 'annotations', f'instances_labeled2017_{epoch}.json'), 'w') as f:
-                        json.dump(labeled_ann_data, f)
-                    with open(os.path.join(KITTI_DATASET_PATH, 'annotations', f'instances_unlabeled2017_{epoch}.json'), 'w') as f:
-                        json.dump(unlabeled_ann_data, f)
+                    # all_ann_file = os.path.join(KITTI_DATASET_PATH, 'annotations', 'instances_train2017.json')
+                    # with open(all_ann_file, 'r') as f_ann_in:
+                    #     all_ann_data = json.load(f_ann_in)
+                    # labeled_ann_file = os.path.join(LABELED_DATASET_PATH, 'annotations', 'instances_train2017.json')
+                    # with open(labeled_ann_file, 'r') as f_ann_in:
+                    #     labeled_ann_data = json.load(f_ann_in)
+                    # new_filenames = [_ + '.png' for _ in new_labeled_data]
+                    # all_ann_data['images'] = [_ for _ in all_ann_data['images'] if _['file_name'] in new_filenames]  # 1500
+                    # labeled_ann_data['images'] += all_ann_data['images']  # 1500 * (n + 1)
+                    # labeled_image_ids = [_['id'] for _ in labeled_ann_data['images']]  # 1500 * (n + 1)
+                    # labeled_ann_data['annotations'] = [_ for _ in all_ann_data['annotations'] if _['image_id'] in labeled_image_ids]
+                    # ann_file = os.path.join(LABELED_DATASET_PATH, 'annotations', 'instances_train2017.json')
+                    # with open(ann_file, 'w') as f_ann_out:
+                    #     json.dump(labeled_ann_data, f_ann_out)
+
+                    # ann_file = os.path.join(UNLABELED_DATASET_PATH, 'annotations', 'instances_train2017.json')
+                    # with open(ann_file, 'r') as f_ann_in:
+                    #     ann_data = json.load(f_ann_in)
+                    # new_filenames = [_ + '.png' for _ in new_labeled_data]  # 1500
+                    # ann_data['images'] = [_ for _ in ann_data['images'] if _['file_name'] not in new_filenames]  # 1500 * (n - 1)
+                    # unlabeled_image_ids = [_['id'] for _ in ann_data['images']]  # 1500 * (n - 1)
+                    # ann_data['annotations'] = [_ for _ in ann_data['annotations'] if _['image_id'] in unlabeled_image_ids]
+                    # ann_file = os.path.join(UNLABELED_DATASET_PATH, 'annotations', 'instances_train2017.json')
+                    # with open(ann_file, 'w') as f_ann_out:
+                    #     json.dump(ann_data, f_ann_out)
             dist.barrier()
             
             #-----------------------Labeled data loader-----------------------#
-            if epoch in AL_EPOCHS:
+            if epoch % AL_EPOCH_MARGIN == 0:
                 print(f"[AL][{dist.get_rank()}] Reconstructing dataloader ...")
                 self.cfg.labeled_dataloader = self.cfg.build_dataloader('labeled_dataloader')
                 self.labeled_dataloader = dist_utils.warp_loader(self.cfg.labeled_dataloader, \
                     shuffle=self.cfg.labeled_dataloader.shuffle)
+                # print(len(self.train_dataloader), len(self.labeled_dataloader))
                 print(f"[AL][{dist.get_rank()}] done with {len(self.labeled_dataloader)} in the new dataloader!")
             self.labeled_dataloader.set_epoch(epoch)
+            # self.labeled_dataloader.dataset.set_epoch(epoch)
             if dist_utils.is_dist_available_and_initialized():
                 self.labeled_dataloader.sampler.set_epoch(epoch)
             #-------------------------------------------------------------------#
@@ -268,7 +288,7 @@ class DetSolver(BaseSolver):
             return: list([entropy, image_id])
         """
         pairs = []
-        for samples, targets in self.unlabeled_dataloader:
+        for samples, targets in tqdm(self.unlabeled_dataloader):
             samples = samples.to(self.device)
             targets = [{k: v.to(self.device) for k, v in t.items()} for t in targets]
             outputs = self.model(samples)
@@ -277,41 +297,19 @@ class DetSolver(BaseSolver):
                 probs = F.softmax(output, dim=-1)
                 log_probs = F.log_softmax(output, dim=-1)
                 # The pairs store the information of the entropy and the according image. (Target here is a dict)
-                pairs.append([-torch.sum(probs * log_probs).item(), int(target['image_id'])])
-        return pairs
-
-    def gain_feed(self):
-        """
-            return: list([information gain, image_id])
-        """
-        pairs = []
-        for samples, targets in self.unlabeled_dataloader:
-            samples = samples.to(self.device)
-            targets = [{k: v.to(self.device) for k, v in t.items()} for t in targets]
-            outputs = self.model(samples)
-            for (output, target) in zip(outputs['pred_logits'], targets):
-                output = output.view(-1)
-                logpy = logmeanexp(output, dim=0, keepdim=True)
-                curiosity = (torch.exp(output) * (output - logpy)).mean(dim=0).sum(dim=0)
-                # The pairs store the information of the entropy and the according image. (Target here is a dict)
-                pairs.append([curiosity, int(target['image_id'])])
-        return pairs
-    
-    def init_feed(self, id2fn):
-        """
-            return: list([0, image_id])
-        """
-        pairs = []
-        for samples, targets in tqdm(self.unlabeled_dataloader):
-            targets = [{k: v.to(self.device) for k, v in t.items()} for t in targets]
-            for target in targets:
-                if id2fn[target['image_id']].split('_')[1] == 'original.jpg':
-                    pairs.append([0, target['image_id']])
+                pairs.append([-torch.sum(probs * log_probs).item(), target['image_id']])
+        # sorted_pairs = sorted(pairs, key=lambda x: x[0], reverse=True)
+        # print(f"[AL] {len(sorted_pairs)} pairs collected here in {self.device}.")
         return pairs
 
 
 def clean_file_structure():
     print("[AL] Updating Files")
+    # if os.path.exists(LABELED_DATASET_PATH):
+    #     shutil.rmtree(LABELED_DATASET_PATH)
+    # os.makedirs(LABELED_DATASET_PATH)
+    # os.makedirs(os.path.join(LABELED_DATASET_PATH, 'train2017'))
+    # os.makedirs(os.path.join(LABELED_DATASET_PATH, 'annotations'))
     base_ann = {
         'images': [],
         'annotations': [],
@@ -324,10 +322,22 @@ def clean_file_structure():
     with open(os.path.join(KITTI_DATASET_PATH, 'annotations', 'instances_labeled2017.json'), 'w') as f:
         json.dump(base_ann, f)
 
+    # if os.path.exists(UNLABELED_DATASET_PATH):
+    #     shutil.rmtree(UNLABELED_DATASET_PATH)
+    # os.makedirs(UNLABELED_DATASET_PATH)
+    # os.makedirs(os.path.join(UNLABELED_DATASET_PATH, 'train2017'))
+    # os.makedirs(os.path.join(UNLABELED_DATASET_PATH, 'annotations'))
     shutil.copy2(
         os.path.join(KITTI_DATASET_PATH, 'annotations', 'instances_train2017.json'),
         os.path.join(KITTI_DATASET_PATH, 'annotations', 'instances_unlabeled2017.json')
     )
+    # src_folder = os.path.join(KITTI_DATASET_PATH, 'train2017')
+    # dst_folder = os.path.join(UNLABELED_DATASET_PATH, 'train2017')
+    # for file in tqdm(os.listdir(src_folder)):
+    #     shutil.copy2(
+    #         os.path.join(src_folder, file),
+    #         os.path.join(dst_folder, file)
+    #     )
     with open(os.path.join(KITTI_DATASET_PATH, 'annotations', 'instances_train2017.json'), 'r') as f:
         kitti_dict = json.load(f)
     return kitti_dict
@@ -340,21 +350,3 @@ def getTopUnique(lst: list, topK: int, xclude: list = []):
         if len(res) >= topK:
             break
     return res
-
-def logmeanexp(logits, dim=0, keepdim=False):
-    # print(logits)
-    # print(F.log_softmax(logits, dim=dim))
-    # print((logits - F.log_softmax(logits, dim=dim)).mean(dim=dim, keepdim=keepdim))
-    # print(torch.log(torch.tensor(logits.size(dim), device=logits.device)))
-    # res = (logits - F.log_softmax(logits, dim=dim)).mean(dim=dim, keepdim=keepdim) \
-    #     - torch.log(torch.tensor(logits.size(dim), device=logits.device))
-    # print(res)
-    # logits: [num_classes]
-    # F.log_softmax(logits, dim=dim): [num_classes]
-    # (logits - F.log_softmax(logits, dim=dim)): [num_classes]
-    # (logits - F.log_softmax(logits, dim=dim)).mean(dim=dim, keepdim=keepdim): [1]
-    # torch.log(torch.tensor(logits.size(dim), device=logits.device)): scalar
-    # res: [1]
-    # assert False
-    return (logits - F.log_softmax(logits, dim=dim)).mean(dim=dim, keepdim=keepdim) \
-        - torch.log(torch.tensor(logits.size(dim), device=logits.device))
