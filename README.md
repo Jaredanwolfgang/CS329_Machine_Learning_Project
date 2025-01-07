@@ -7,14 +7,15 @@ The original model is [RT-DETRv2](https://github.com/lyuwenyu/RT-DETR/tree/main/
 
 The original test video is recorded by ourselves in the campus:
 
-![test](https://github.com/Jaredanwolfgang/CS329_Machine_Learning_Project/blob/main/video/test_clipped.mp4)
+
+https://github.com/user-attachments/assets/9e9f5bcd-8909-46df-b81a-8873589dd4c8
 
 The detection result using the original model is:
 
-![original](https://github.com/Jaredanwolfgang/CS329_Machine_Learning_Project/blob/main/video/output_original_clipped.mp4)
+https://github.com/user-attachments/assets/12e467d8-ece9-4ff6-a1a1-f8f47650d66a
 
 And our finetune result is:
 
-![final](https://github.com/Jaredanwolfgang/CS329_Machine_Learning_Project/blob/main/video/output_al_clipped.mp4)
+https://github.com/user-attachments/assets/08d07829-59dc-456c-9e9d-379cad483967
 
 During the finetune process, we have used the checkpoint `rtdetrv2_r101vd_6x_coco_from_paddle.pth` from the original model. And then we use Active Learning and Data Augmentation to finetune the model. 
