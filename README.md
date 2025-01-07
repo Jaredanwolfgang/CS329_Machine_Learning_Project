@@ -18,4 +18,4 @@ And our finetune result is:
 
 https://github.com/user-attachments/assets/08d07829-59dc-456c-9e9d-379cad483967
 
-During the finetune process, we have used the checkpoint `rtdetrv2_r101vd_6x_coco_from_paddle.pth` from the original model. And then we use Active Learning and Data Augmentation to finetune the model. 
+You can see the promising tuning results help us distinguish the pedestrian and cyclist. (Using the original model will somehow misunderstand the cyclist as person) During the finetune process, we have used the checkpoint `rtdetrv2_r101vd_6x_coco_from_paddle.pth` from the original model. And then we use Active Learning and Data Augmentation to finetune the model. 
