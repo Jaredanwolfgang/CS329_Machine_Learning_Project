@@ -286,7 +286,6 @@ class HybridEncoder(nn.Module):
 
         out_w = grid_w.flatten()[..., None] @ omega[None]
         out_h = grid_h.flatten()[..., None] @ omega[None]
-
         return torch.concat([out_w.sin(), out_w.cos(), out_h.sin(), out_h.cos()], dim=1)[None, :, :]
 
     def forward(self, feats):
@@ -304,7 +303,7 @@ class HybridEncoder(nn.Module):
                         w, h, self.hidden_dim, self.pe_temperature).to(src_flatten.device)
                 else:
                     pos_embed = getattr(self, f'pos_embed{enc_ind}', None).to(src_flatten.device)
-
+                
                 memory :torch.Tensor = self.encoder[i](src_flatten, pos_embed=pos_embed)
                 proj_feats[enc_ind] = memory.permute(0, 2, 1).reshape(-1, self.hidden_dim, h, w).contiguous()
 

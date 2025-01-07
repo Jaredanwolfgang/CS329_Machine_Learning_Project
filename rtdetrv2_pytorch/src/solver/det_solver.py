@@ -27,7 +27,7 @@ Initially 1500 data in the training set
 add 1500 data in epoch #10, 20, 30, 40 
 """
 
-AL_MODE = 'gain'
+AL_MODE = 'random'
 AL_SIZE_MARGIN = 1500  # 1500
 # AL_EPOCH_MARGIN = 5
 # AL_MAX_EPOCH = 45
